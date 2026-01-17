@@ -13,11 +13,42 @@ RELEASE_URL = "https://github.com/WEIFENG2333/VideoCaptioner/releases/latest"
 FEEDBACK_URL = "https://github.com/WEIFENG2333/VideoCaptioner/issues"
 
 # 路径
-ROOT_PATH = Path(__file__).parent.parent
+def _env_path(*keys: str, default: Path) -> Path:
+    for key in keys:
+        value = os.getenv(key)
+        if value:
+            return Path(value)
+    return default
+
+
+ROOT_PATH = _env_path(
+    "VIDEO_CAPTIONER_ROOT",
+    "OPENI_CODE_PATH",
+    "C2NET_CODE_PATH",
+    default=Path(__file__).parent.parent,
+)
 
 RESOURCE_PATH = ROOT_PATH / "resource"
-APPDATA_PATH = ROOT_PATH / "AppData"
-WORK_PATH = ROOT_PATH / "work-dir"
+APPDATA_PATH = _env_path(
+    "VIDEO_CAPTIONER_APPDATA",
+    default=ROOT_PATH / "AppData",
+)
+WORK_PATH = _env_path(
+    "VIDEO_CAPTIONER_WORK",
+    default=ROOT_PATH / "work-dir",
+)
+OUTPUT_PATH = _env_path(
+    "VIDEO_CAPTIONER_OUTPUT",
+    "OPENI_OUTPUT_PATH",
+    "C2NET_OUTPUT_PATH",
+    default=ROOT_PATH / "output",
+)
+DATASET_PATH = _env_path(
+    "VIDEO_CAPTIONER_DATASET",
+    "OPENI_DATASET_PATH",
+    "C2NET_DATASET_PATH",
+    default=Path("/tmp/dataset"),
+)
 
 
 BIN_PATH = RESOURCE_PATH / "bin"
@@ -45,5 +76,5 @@ os.environ["PATH"] = str(BIN_PATH) + os.pathsep + os.environ["PATH"]
 os.environ["PYTHON_VLC_MODULE_PATH"] = str(BIN_PATH / "vlc")
 
 # 创建路径
-for p in [CACHE_PATH, LOG_PATH, WORK_PATH, MODEL_PATH]:
+for p in [CACHE_PATH, LOG_PATH, WORK_PATH, MODEL_PATH, OUTPUT_PATH]:
     p.mkdir(parents=True, exist_ok=True)

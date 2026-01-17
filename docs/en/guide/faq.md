@@ -1,3 +1,0 @@
-# FAQ
-
-English documentation coming soon...

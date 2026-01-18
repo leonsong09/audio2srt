@@ -54,3 +54,7 @@ Use DeepSeek:
 ## 7. Notes
 - Kaggle may not have `faster-whisper-xxl`; use `--transcribe-model WHISPER_API` if needed.
 - If ffmpeg is missing, install it in the notebook or use a kernel that includes it.
+- If you want local FasterWhisper models, set `MODE=faster-whisper` and choose `MODEL_NAME`:
+  `large-v2`, `large-v3`, `large-v3-turbo`,
+  `belle-whisper-large-v2-zh`, `belle-whisper-large-v3-zh`,
+  `belle-whisper-large-v3-zh-punct` (default), `belle-whisper-large-v3-turbo-zh`.

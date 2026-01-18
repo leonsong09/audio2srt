@@ -329,6 +329,12 @@ class WhisperModelEnum(Enum):
     MEDIUM = "medium"
     LARGE_V1 = "large-v1"
     LARGE_V2 = "large-v2"
+    LARGE_V3 = "large-v3"
+    LARGE_V3_TURBO = "large-v3-turbo"
+    BELLE_LARGE_V2_ZH = "belle-whisper-large-v2-zh"
+    BELLE_LARGE_V3_ZH = "belle-whisper-large-v3-zh"
+    BELLE_LARGE_V3_ZH_PUNCT = "belle-whisper-large-v3-zh-punct"
+    BELLE_LARGE_V3_TURBO_ZH = "belle-whisper-large-v3-turbo-zh"
 
 
 class FasterWhisperModelEnum(Enum):

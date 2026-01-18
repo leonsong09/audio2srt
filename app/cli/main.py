@@ -826,7 +826,7 @@ def cmd_interactive(args) -> None:
     whisper_api_base = ""
     whisper_api_model = ""
     whisper_api_prompt = ""
-    faster_whisper_model = "LARGE_V2"
+    faster_whisper_model = "belle-whisper-large-v3-zh-punct"
     faster_whisper_program = ""
     faster_whisper_model_dir = ""
     faster_whisper_device = "cuda"
@@ -975,7 +975,9 @@ def build_parser() -> argparse.ArgumentParser:
     transcribe_parser.add_argument("--whisper-api-prompt", default="")
 
     transcribe_parser.add_argument("--faster-whisper-program", default="")
-    transcribe_parser.add_argument("--faster-whisper-model", default="LARGE_V2")
+    transcribe_parser.add_argument(
+        "--faster-whisper-model", default="belle-whisper-large-v3-zh-punct"
+    )
     transcribe_parser.add_argument("--faster-whisper-model-dir", default="")
     transcribe_parser.add_argument("--faster-whisper-device", default="cuda")
     transcribe_parser.add_argument("--disable-vad", action="store_true")
@@ -1050,7 +1052,9 @@ def build_parser() -> argparse.ArgumentParser:
     full_parser.add_argument("--whisper-api-prompt", default="")
 
     full_parser.add_argument("--faster-whisper-program", default="")
-    full_parser.add_argument("--faster-whisper-model", default="LARGE_V2")
+    full_parser.add_argument(
+        "--faster-whisper-model", default="belle-whisper-large-v3-zh-punct"
+    )
     full_parser.add_argument("--faster-whisper-model-dir", default="")
     full_parser.add_argument("--faster-whisper-device", default="cuda")
     full_parser.add_argument("--disable-vad", action="store_true")

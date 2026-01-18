@@ -6,7 +6,7 @@ VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 
 MODE="${MODE:-faster-whisper}"          # faster-whisper | whisper-api
-MODEL_NAME="${MODEL_NAME:-large-v2}"    # tiny/base/small/medium/large-v2
+MODEL_NAME="${MODEL_NAME:-belle-whisper-large-v3-zh-punct}"    # tiny/base/small/medium/large-v2/large-v3/large-v3-turbo/belle-*
 MODEL_DIR="${MODEL_DIR:-$ROOT_DIR/AppData/models}"
 DATASET_DIR="${DATASET_DIR:-/tmp/dataset}"
 OUTPUT_DIR="${OUTPUT_DIR:-/tmp/output}"
@@ -37,9 +37,15 @@ from pathlib import Path
 
 from huggingface_hub import snapshot_download
 
-model_name = os.environ.get("MODEL_NAME", "large-v2")
+model_name = os.environ.get("MODEL_NAME", "belle-whisper-large-v3-zh-punct")
 model_dir = Path(os.environ.get("MODEL_DIR", "./AppData/models")).expanduser()
-repo_id = f"Systran/faster-whisper-{model_name}"
+repo_map = {
+    "belle-whisper-large-v2-zh": "BELLE-2/Belle-whisper-large-v2-zh",
+    "belle-whisper-large-v3-zh": "BELLE-2/Belle-whisper-large-v3-zh",
+    "belle-whisper-large-v3-zh-punct": "BELLE-2/Belle-whisper-large-v3-zh-punct",
+    "belle-whisper-large-v3-turbo-zh": "BELLE-2/Belle-whisper-large-v3-turbo-zh",
+}
+repo_id = repo_map.get(model_name, f"Systran/faster-whisper-{model_name}")
 target_dir = model_dir / model_name
 target_dir.mkdir(parents=True, exist_ok=True)
 snapshot_download(

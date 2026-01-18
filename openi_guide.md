@@ -31,8 +31,17 @@ bash fetch_gitee.sh
 
 ## 3. One-step setup (env + model)
 ```bash
-MODE=faster-whisper MODEL_NAME=large-v2 bash setup.sh
+MODE=faster-whisper MODEL_NAME=belle-whisper-large-v3-zh-punct bash setup.sh
 ```
+
+Optional models:
+- `large-v2`
+- `large-v3`
+- `large-v3-turbo`
+- `belle-whisper-large-v2-zh`
+- `belle-whisper-large-v3-zh`
+- `belle-whisper-large-v3-zh-punct` (default)
+- `belle-whisper-large-v3-turbo-zh`
 
 This will:
 - create `.venv`

@@ -45,8 +45,17 @@ cd /tmp/code/audio2srt
 ## 3. 安装依赖
 推荐一键安装（环境 + 模型）：
 ```bash
-MODE=faster-whisper MODEL_NAME=large-v2 bash setup.sh
+MODE=faster-whisper MODEL_NAME=belle-whisper-large-v3-zh-punct bash setup.sh
 ```
+
+可选模型（`MODEL_NAME`）：
+- `large-v2`
+- `large-v3`
+- `large-v3-turbo`
+- `belle-whisper-large-v2-zh`
+- `belle-whisper-large-v3-zh`
+- `belle-whisper-large-v3-zh-punct`（默认）
+- `belle-whisper-large-v3-turbo-zh`
 
 或手动安装：
 ```bash

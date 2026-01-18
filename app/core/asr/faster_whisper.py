@@ -106,11 +106,17 @@ class FasterWhisperASR(BaseASR):
                 self.faster_whisper_program = "faster-whisper"
                 self.vad_method = ""
         elif self.device == "cuda":
-            if not shutil.which("faster-whisper-xxl"):
-                raise EnvironmentError(
-                    "faster-whisper-xxl 程序未找到，请确保已经下载。"
+            if shutil.which("faster-whisper-xxl"):
+                self.faster_whisper_program = "faster-whisper-xxl"
+            elif shutil.which("faster-whisper"):
+                logger.warning(
+                    "faster-whisper-xxl not found, falling back to faster-whisper."
                 )
-            self.faster_whisper_program = "faster-whisper-xxl"
+                self.faster_whisper_program = "faster-whisper"
+            else:
+                raise EnvironmentError(
+                    "faster-whisper 或 faster-whisper-xxl 程序未找到，请确保已经下载。"
+                )
 
     def _build_command(self, audio_input: str) -> List[str]:
         """Build command line arguments for faster-whisper."""

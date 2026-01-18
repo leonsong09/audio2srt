@@ -1,0 +1,9 @@
+requests>=2.32.4
+openai>=1.97.1
+diskcache>=5.6.3
+json-repair>=0.49.0
+langdetect>=1.0.9
+pydub>=0.25.1
+tenacity>=8.2.0
+GPUtil>=1.4.0
+spleeter>=2.4.0

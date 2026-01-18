@@ -1,10 +1,7 @@
 from app.core.asr.asr_data import ASRData
-from app.core.asr.bcut import BcutASR
 from app.core.asr.chunked_asr import ChunkedASR
 from app.core.asr.faster_whisper import FasterWhisperASR
-from app.core.asr.jianying import JianYingASR
 from app.core.asr.whisper_api import WhisperAPI
-from app.core.asr.whisper_cpp import WhisperCppASR
 from app.core.entities import TranscribeConfig, TranscribeModelEnum
 
 
@@ -54,60 +51,14 @@ def _create_asr_instance(audio_path: str, config: TranscribeConfig) -> ChunkedAS
     """
     model_type = config.transcribe_model
 
-    if model_type == TranscribeModelEnum.JIANYING:
-        return _create_jianying_asr(audio_path, config)
-
-    elif model_type == TranscribeModelEnum.BIJIAN:
-        return _create_bijian_asr(audio_path, config)
-
-    elif model_type == TranscribeModelEnum.WHISPER_CPP:
-        return _create_whisper_cpp_asr(audio_path, config)
-
-    elif model_type == TranscribeModelEnum.WHISPER_API:
+    if model_type == TranscribeModelEnum.WHISPER_API:
         return _create_whisper_api_asr(audio_path, config)
 
     elif model_type == TranscribeModelEnum.FASTER_WHISPER:
         return _create_faster_whisper_asr(audio_path, config)
 
     else:
-        raise ValueError(f"Invalid transcription model: {model_type}")
-
-
-def _create_jianying_asr(audio_path: str, config: TranscribeConfig) -> ChunkedASR:
-    """Create JianYing ASR instance with chunking support."""
-    asr_kwargs = {
-        "use_cache": True,
-        "need_word_time_stamp": config.need_word_time_stamp,
-    }
-    return ChunkedASR(
-        asr_class=JianYingASR, audio_path=audio_path, asr_kwargs=asr_kwargs
-    )
-
-
-def _create_bijian_asr(audio_path: str, config: TranscribeConfig) -> ChunkedASR:
-    """Create Bijian ASR instance with chunking support."""
-    asr_kwargs = {
-        "use_cache": True,
-        "need_word_time_stamp": config.need_word_time_stamp,
-    }
-    return ChunkedASR(asr_class=BcutASR, audio_path=audio_path, asr_kwargs=asr_kwargs)
-
-
-def _create_whisper_cpp_asr(audio_path: str, config: TranscribeConfig) -> ChunkedASR:
-    """Create WhisperCpp ASR instance with chunking support."""
-    asr_kwargs = {
-        "use_cache": True,
-        "need_word_time_stamp": config.need_word_time_stamp,
-        "language": config.transcribe_language,
-        "whisper_model": config.whisper_model.value if config.whisper_model else None,
-    }
-    return ChunkedASR(
-        asr_class=WhisperCppASR,
-        audio_path=audio_path,
-        asr_kwargs=asr_kwargs,
-        chunk_concurrency=1,  # 本地转录使用单线程
-        chunk_length=60 * 20,  # 每块20分钟
-    )
+        raise ValueError(f"Unsupported transcription model: {model_type}")
 
 
 def _create_whisper_api_asr(audio_path: str, config: TranscribeConfig) -> ChunkedASR:
@@ -156,24 +107,3 @@ def _create_faster_whisper_asr(audio_path: str, config: TranscribeConfig) -> Chu
         chunk_concurrency=1,  # 本地转录使用单线程
         chunk_length=60 * 20,  # 每块20分钟
     )
-
-
-if __name__ == "__main__":
-    # 示例用法
-    from app.core.entities import WhisperModelEnum
-
-    # 创建配置
-    config = TranscribeConfig(
-        transcribe_model=TranscribeModelEnum.WHISPER_CPP,
-        transcribe_language="zh",
-        whisper_model=WhisperModelEnum.MEDIUM,
-    )
-
-    # 转录音频
-    audio_file = "test.wav"
-
-    def progress_callback(progress: int, message: str):
-        print(f"Progress: {progress}%, Message: {message}")
-
-    result = transcribe(audio_file, config, callback=progress_callback)
-    print(result)

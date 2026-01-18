@@ -4,9 +4,9 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
-from app.config import DATASET_PATH, MODEL_PATH, OUTPUT_PATH
+from app.config import DATASET_PATH, MODEL_PATH, OUTPUT_PATH, SUBTITLE_STYLE_PATH
 from app.core.asr import transcribe
 from app.core.asr.asr_data import ASRData
 from app.core.entities import (
@@ -20,7 +20,6 @@ from app.core.entities import (
     TranscribeOutputFormatEnum,
     TranslatorServiceEnum,
     VadMethodEnum,
-    WhisperModelEnum,
 )
 from app.core.llm.check_llm import check_llm_connection
 from app.core.optimize.optimize import SubtitleOptimizer
@@ -94,6 +93,38 @@ def _default_output_dir() -> Path:
     return OUTPUT_PATH
 
 
+def _prepare_c2net_context(dataset_subdir: str) -> tuple[Path, Path, Callable[[], None]]:
+    try:
+        from c2net.context import prepare, upload_output
+    except ImportError as exc:
+        raise RuntimeError("c2net SDK not available. Disable --use-c2net.") from exc
+
+    context = prepare()
+    dataset_path = Path(context.dataset_path)
+    if dataset_subdir:
+        dataset_path = dataset_path / dataset_subdir
+    output_path = Path(context.output_path)
+    return dataset_path, output_path, upload_output
+
+
+def _resolve_runtime_paths(args) -> tuple[Path, Path, Optional[Callable[[], None]]]:
+    dataset_path = _default_dataset_path()
+    output_dir_value = getattr(args, "output_dir", "")
+    output_dir = Path(output_dir_value) if output_dir_value else _default_output_dir()
+    upload_func = None
+
+    if getattr(args, "use_c2net", False):
+        dataset_path, c2net_output, upload_output = _prepare_c2net_context(
+            getattr(args, "dataset_subdir", "whisper-audio")
+        )
+        if not output_dir_value:
+            output_dir = c2net_output
+        if getattr(args, "upload_output", False):
+            upload_func = upload_output
+
+    return dataset_path, output_dir, upload_func
+
+
 def _parse_enum(value: Optional[str], enum_cls):
     if value is None:
         return None
@@ -129,6 +160,28 @@ def _resolve_input_path(input_path: str, dataset_path: Path) -> Path:
     if candidate.exists():
         return candidate
     return path
+
+
+def _resolve_subtitle_style(style_value: str) -> str:
+    if not style_value:
+        return ""
+    style_path = Path(style_value)
+    if style_path.is_file():
+        return style_path.read_text(encoding="utf-8")
+
+    candidate = Path(style_value)
+    if candidate.suffix.lower() != ".txt":
+        candidate = SUBTITLE_STYLE_PATH / f"{style_value}.txt"
+    else:
+        candidate = SUBTITLE_STYLE_PATH / style_value
+    if candidate.is_file():
+        return candidate.read_text(encoding="utf-8")
+
+    for style_file in SUBTITLE_STYLE_PATH.glob("*.txt"):
+        if style_file.stem.lower() == style_value.lower():
+            return style_file.read_text(encoding="utf-8")
+
+    raise FileNotFoundError(f"Subtitle style not found: {style_value}")
 
 
 def _build_output_path(
@@ -226,9 +279,6 @@ def _process_subtitles(
 ) -> None:
     asr_data = ASRData.from_subtitle_file(str(subtitle_path))
 
-    if config.need_split and not asr_data.is_word_timestamp():
-        asr_data.split_to_word_segments()
-
     needs_llm = config.need_optimize or config.need_split or (
         config.need_translate and config.translator_service == TranslatorServiceEnum.OPENAI
     )
@@ -244,7 +294,7 @@ def _process_subtitles(
             if not ok:
                 raise RuntimeError(f"LLM check failed: {message or ''}")
 
-    if asr_data.is_word_timestamp() and config.need_split:
+    if config.need_split:
         splitter = SubtitleSplitter(
             thread_num=config.thread_num,
             model=config.llm_model or "",
@@ -324,8 +374,15 @@ def _add_common_llm_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--skip-llm-check", action="store_true")
 
 
+def _add_c2net_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--use-c2net", action="store_true")
+    parser.add_argument("--dataset-subdir", default="whisper-audio")
+    parser.add_argument("--upload-output", action="store_true")
+
+
 def _add_common_subtitle_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--subtitle-layout", default="ORIGINAL_ON_TOP")
+    parser.add_argument("--subtitle-style", default="")
     parser.add_argument("--target-language", default="")
     parser.add_argument("--translator-service", default="OPENAI")
     parser.add_argument("--deeplx-endpoint", default="")
@@ -344,6 +401,7 @@ def _build_subtitle_config(args) -> SubtitleConfig:
     layout = _parse_enum(args.subtitle_layout, SubtitleLayoutEnum) or SubtitleLayoutEnum.ORIGINAL_ON_TOP
     translator = _parse_enum(args.translator_service, TranslatorServiceEnum) or TranslatorServiceEnum.OPENAI
     target_language = _parse_enum(args.target_language, TargetLanguage)
+    subtitle_style = _resolve_subtitle_style(args.subtitle_style) if args.subtitle_style else ""
     return SubtitleConfig(
         base_url="",
         api_key="",
@@ -360,14 +418,13 @@ def _build_subtitle_config(args) -> SubtitleConfig:
         max_word_count_english=args.max_word_count_english,
         need_split=args.need_split,
         target_language=target_language,
-        subtitle_style="",
+        subtitle_style=subtitle_style,
         custom_prompt_text=args.custom_prompt,
     )
 
 
 def cmd_transcribe(args) -> None:
-    dataset_path = _default_dataset_path()
-    output_dir = Path(args.output_dir) if args.output_dir else _default_output_dir()
+    dataset_path, output_dir, upload_func = _resolve_runtime_paths(args)
     input_path = _resolve_input_path(args.input, dataset_path)
     if not input_path.exists():
         raise FileNotFoundError(f"Input not found: {input_path}")
@@ -376,11 +433,12 @@ def cmd_transcribe(args) -> None:
         _parse_enum(args.transcribe_model, TranscribeModelEnum)
         or TranscribeModelEnum.FASTER_WHISPER
     )
+    if model not in (TranscribeModelEnum.FASTER_WHISPER, TranscribeModelEnum.WHISPER_API):
+        raise ValueError("Only FASTER_WHISPER and WHISPER_API are supported.")
     output_format = (
         _parse_enum(args.output_format, TranscribeOutputFormatEnum)
         or TranscribeOutputFormatEnum.SRT
     )
-    whisper_model = _parse_enum(args.whisper_model, WhisperModelEnum)
     faster_model = _parse_enum(args.faster_whisper_model, FasterWhisperModelEnum)
     vad_method = _parse_enum(args.vad_method, VadMethodEnum)
 
@@ -389,13 +447,13 @@ def cmd_transcribe(args) -> None:
     output_path = _build_output_path(
         output_dir, input_path, output_suffix, args.output_name
     )
+    subtitle_style = _resolve_subtitle_style(args.subtitle_style) if args.subtitle_style else ""
 
     config = TranscribeConfig(
         transcribe_model=model,
         transcribe_language=language,
         need_word_time_stamp=args.word_timestamp,
         output_format=output_format,
-        whisper_model=whisper_model,
         whisper_api_key=args.whisper_api_key,
         whisper_api_base=args.whisper_api_base,
         whisper_api_model=args.whisper_api_model,
@@ -430,18 +488,28 @@ def cmd_transcribe(args) -> None:
                 logger.warning("VTT output is not supported yet, skipping.")
                 continue
             save_path = _build_output_path(output_dir, input_path, fmt, args.output_name)
-            asr_data.save(str(save_path), layout=SubtitleLayoutEnum.ORIGINAL_ON_TOP)
+            asr_data.save(
+                str(save_path),
+                ass_style=subtitle_style if fmt == "ass" else None,
+                layout=SubtitleLayoutEnum.ORIGINAL_ON_TOP,
+            )
             logger.info("Subtitle saved: %s", save_path)
     else:
         if output_suffix == "vtt":
             raise ValueError("VTT output is not supported yet.")
-        asr_data.save(str(output_path), layout=SubtitleLayoutEnum.ORIGINAL_ON_TOP)
+        asr_data.save(
+            str(output_path),
+            ass_style=subtitle_style if output_suffix == "ass" else None,
+            layout=SubtitleLayoutEnum.ORIGINAL_ON_TOP,
+        )
         logger.info("Subtitle saved: %s", output_path)
+    if upload_func:
+        logger.info("Uploading output to OpenI...")
+        upload_func()
 
 
 def cmd_subtitle(args) -> None:
-    dataset_path = _default_dataset_path()
-    output_dir = Path(args.output_dir) if args.output_dir else _default_output_dir()
+    dataset_path, output_dir, upload_func = _resolve_runtime_paths(args)
     subtitle_path = _resolve_input_path(args.input, dataset_path)
     if not subtitle_path.exists():
         raise FileNotFoundError(f"Subtitle not found: {subtitle_path}")
@@ -468,6 +536,9 @@ def cmd_subtitle(args) -> None:
         skip_llm_check=args.skip_llm_check,
     )
     logger.info("Subtitle saved: %s", output_path)
+    if upload_func:
+        logger.info("Uploading output to OpenI...")
+        upload_func()
 
 
 def cmd_split(args) -> None:
@@ -538,6 +609,15 @@ def _prompt_choice(text: str, options: list[tuple[str, str]], default_index: int
         print("Invalid selection.")
 
 
+def _list_subtitle_style_options() -> list[tuple[str, str]]:
+    options = [("Built-in default", "")]
+    if SUBTITLE_STYLE_PATH.exists():
+        for style_file in sorted(SUBTITLE_STYLE_PATH.glob("*.txt")):
+            options.append((style_file.stem, style_file.stem))
+    options.append(("Custom path", "__custom__"))
+    return options
+
+
 def _parse_target_language(value: str) -> Optional[TargetLanguage]:
     raw = value.strip().lower()
     alias_map = {
@@ -564,12 +644,27 @@ def _parse_target_language(value: str) -> Optional[TargetLanguage]:
     return _parse_enum(value, TargetLanguage)
 
 
-def cmd_interactive(_args) -> None:
-    dataset_path = _default_dataset_path()
-    output_dir_default = _default_output_dir()
+def cmd_interactive(args) -> None:
+    use_c2net_default = Path("/tmp/dataset").exists() or Path("/tmp/code").exists()
+    use_c2net = args.use_c2net or _prompt_yes_no("Use c2net paths", default=use_c2net_default)
+    dataset_subdir = args.dataset_subdir or "whisper-audio"
+    if use_c2net and not args.use_c2net:
+        dataset_subdir = _prompt("Dataset subdir", default=dataset_subdir)
+
+    upload_output = args.upload_output
+
+    if use_c2net:
+        dataset_path, output_dir_default, _ = _prepare_c2net_context(dataset_subdir)
+        if not args.upload_output:
+            upload_output = _prompt_yes_no("Upload output to OpenI", default=False)
+    else:
+        dataset_path = _default_dataset_path()
+        output_dir_default = _default_output_dir()
 
     print("VideoCaptioner CLI interactive mode")
     print(f"Dataset path: {dataset_path}")
+    print(f"Output path: {output_dir_default}")
+
     input_path_str = _prompt("Input file (relative to dataset or absolute)", required=True)
     input_path = _resolve_input_path(input_path_str, dataset_path)
     if not input_path.exists():
@@ -577,6 +672,22 @@ def cmd_interactive(_args) -> None:
 
     output_dir = Path(_prompt("Output directory", default=str(output_dir_default)))
     output_name = _prompt("Output file name (without extension)", default=input_path.stem)
+
+    output_suffix = _prompt_choice(
+        "Output subtitle format",
+        [("SRT", ".srt"), ("ASS", ".ass"), ("TXT", ".txt"), ("JSON", ".json")],
+        default_index=0,
+    )
+    subtitle_style = ""
+    if output_suffix == ".ass":
+        style_choice = _prompt_choice(
+            "Subtitle style (ASS only)",
+            _list_subtitle_style_options(),
+            default_index=0,
+        )
+        if style_choice == "__custom__":
+            style_choice = _prompt("Style file path", required=True)
+        subtitle_style = style_choice
 
     subtitle_suffixes = {".srt", ".ass", ".json", ".vtt", ".txt"}
     is_subtitle = input_path.suffix.lower() in subtitle_suffixes
@@ -588,6 +699,7 @@ def cmd_interactive(_args) -> None:
     translator_service = "OPENAI"
     target_language = ""
     deeplx_endpoint = ""
+    need_reflect = False
     if need_translate:
         translator_service = _prompt_choice(
             "Select translator service",
@@ -606,6 +718,8 @@ def cmd_interactive(_args) -> None:
         target_language = target_enum.name
         if translator_service == "DEEPLX":
             deeplx_endpoint = _prompt("DeepLX endpoint", default="")
+        if translator_service == "OPENAI":
+            need_reflect = _prompt_yes_no("Enable reflection translation", default=False)
 
     llm_service = "OPENAI"
     llm_base_url = ""
@@ -641,7 +755,18 @@ def cmd_interactive(_args) -> None:
     batch_size = 10
     max_word_count_cjk = 12
     max_word_count_english = 18
+    subtitle_layout = "ORIGINAL_ON_TOP"
     if _prompt_yes_no("Advanced subtitle settings", default=False):
+        subtitle_layout = _prompt_choice(
+            "Subtitle layout",
+            [
+                ("Original on top", "ORIGINAL_ON_TOP"),
+                ("Translate on top", "TRANSLATE_ON_TOP"),
+                ("Only original", "ONLY_ORIGINAL"),
+                ("Only translate", "ONLY_TRANSLATE"),
+            ],
+            default_index=0,
+        )
         thread_num = int(_prompt("Thread num", default=str(thread_num)))
         batch_size = int(_prompt("Batch size", default=str(batch_size)))
         max_word_count_cjk = int(_prompt("Max word count (CJK)", default=str(max_word_count_cjk)))
@@ -652,15 +777,16 @@ def cmd_interactive(_args) -> None:
     base_subtitle_args = {
         "output_dir": str(output_dir),
         "output_name": output_name,
-        "output_suffix": ".srt",
-        "subtitle_layout": "ORIGINAL_ON_TOP",
+        "output_suffix": output_suffix,
+        "subtitle_layout": subtitle_layout,
+        "subtitle_style": subtitle_style,
         "target_language": target_language,
         "translator_service": translator_service,
         "deeplx_endpoint": deeplx_endpoint,
         "need_split": need_split,
         "need_optimize": need_optimize,
         "need_translate": need_translate,
-        "need_reflect": False,
+        "need_reflect": need_reflect,
         "thread_num": thread_num,
         "batch_size": batch_size,
         "max_word_count_cjk": max_word_count_cjk,
@@ -671,6 +797,9 @@ def cmd_interactive(_args) -> None:
         "llm_api_key": llm_api_key,
         "llm_model": llm_model,
         "skip_llm_check": skip_llm_check,
+        "use_c2net": use_c2net,
+        "dataset_subdir": dataset_subdir,
+        "upload_output": upload_output,
     }
 
     if is_subtitle:
@@ -686,7 +815,6 @@ def cmd_interactive(_args) -> None:
         [
             ("FasterWhisper (local)", "FASTER_WHISPER"),
             ("Whisper API", "WHISPER_API"),
-            ("WhisperCpp (local)", "WHISPER_CPP"),
         ],
         default_index=0,
     )
@@ -694,7 +822,6 @@ def cmd_interactive(_args) -> None:
     audio_track_index = int(_prompt("Audio track index", default="0"))
     use_spleeter = _prompt_yes_no("Use Spleeter vocal separation", default=False)
 
-    whisper_model = ""
     whisper_api_key = ""
     whisper_api_base = ""
     whisper_api_model = ""
@@ -710,9 +837,7 @@ def cmd_interactive(_args) -> None:
     one_word = False
     faster_whisper_prompt = ""
 
-    if transcribe_model == "WHISPER_CPP":
-        whisper_model = _prompt("Whisper.cpp model (e.g. medium)", default="MEDIUM")
-    elif transcribe_model == "WHISPER_API":
+    if transcribe_model == "WHISPER_API":
         whisper_api_base = _prompt("Whisper API base URL", default="https://api.openai.com/v1")
         whisper_api_model = _prompt("Whisper API model", default="whisper-1")
         whisper_api_key = getpass.getpass("Whisper API key: ").strip()
@@ -735,7 +860,6 @@ def cmd_interactive(_args) -> None:
         transcribe_model=transcribe_model,
         word_timestamp=False,
         audio_track_index=audio_track_index,
-        whisper_model=whisper_model,
         whisper_api_key=whisper_api_key,
         whisper_api_base=whisper_api_base,
         whisper_api_model=whisper_api_model,
@@ -757,8 +881,7 @@ def cmd_interactive(_args) -> None:
 
 
 def cmd_full(args) -> None:
-    dataset_path = _default_dataset_path()
-    output_dir = Path(args.output_dir) if args.output_dir else _default_output_dir()
+    dataset_path, output_dir, upload_func = _resolve_runtime_paths(args)
     input_path = _resolve_input_path(args.input, dataset_path)
     if not input_path.exists():
         raise FileNotFoundError(f"Input not found: {input_path}")
@@ -767,7 +890,8 @@ def cmd_full(args) -> None:
         _parse_enum(args.transcribe_model, TranscribeModelEnum)
         or TranscribeModelEnum.FASTER_WHISPER
     )
-    whisper_model = _parse_enum(args.whisper_model, WhisperModelEnum)
+    if model not in (TranscribeModelEnum.FASTER_WHISPER, TranscribeModelEnum.WHISPER_API):
+        raise ValueError("Only FASTER_WHISPER and WHISPER_API are supported.")
     faster_model = _parse_enum(args.faster_whisper_model, FasterWhisperModelEnum)
     vad_method = _parse_enum(args.vad_method, VadMethodEnum)
     language = _parse_language(args.language) if args.language else ""
@@ -777,7 +901,6 @@ def cmd_full(args) -> None:
         transcribe_language=language,
         need_word_time_stamp=args.word_timestamp or args.need_split,
         output_format=TranscribeOutputFormatEnum.SRT,
-        whisper_model=whisper_model,
         whisper_api_key=args.whisper_api_key,
         whisper_api_base=args.whisper_api_base,
         whisper_api_model=args.whisper_api_model,
@@ -802,7 +925,8 @@ def cmd_full(args) -> None:
         audio_track_index=args.audio_track_index,
     )
 
-    output_path = _build_output_path(output_dir, input_path, ".srt", args.output_name)
+    output_suffix = args.output_suffix or ".srt"
+    output_path = _build_output_path(output_dir, input_path, output_suffix, args.output_name)
     temp_path = output_dir / f".{input_path.stem}.raw.srt"
     asr_data.save(str(temp_path), layout=SubtitleLayoutEnum.ORIGINAL_ON_TOP)
 
@@ -825,6 +949,9 @@ def cmd_full(args) -> None:
     )
     temp_path.unlink(missing_ok=True)
     logger.info("Subtitle saved: %s", output_path)
+    if upload_func:
+        logger.info("Uploading output to OpenI...")
+        upload_func()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -837,11 +964,11 @@ def build_parser() -> argparse.ArgumentParser:
     transcribe_parser.add_argument("--output-name", default="")
     transcribe_parser.add_argument("--language", default="")
     transcribe_parser.add_argument("--output-format", default="SRT")
+    transcribe_parser.add_argument("--subtitle-style", default="")
     transcribe_parser.add_argument("--transcribe-model", default="FASTER_WHISPER")
     transcribe_parser.add_argument("--word-timestamp", action="store_true")
     transcribe_parser.add_argument("--audio-track-index", type=int, default=0)
 
-    transcribe_parser.add_argument("--whisper-model", default="")
     transcribe_parser.add_argument("--whisper-api-key", default="")
     transcribe_parser.add_argument("--whisper-api-base", default="")
     transcribe_parser.add_argument("--whisper-api-model", default="")
@@ -860,6 +987,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     transcribe_parser.add_argument("--spleeter", action="store_true")
     transcribe_parser.add_argument("--spleeter-stems", type=int, default=5)
+    _add_c2net_args(transcribe_parser)
     transcribe_parser.set_defaults(func=cmd_transcribe)
 
     subtitle_parser = subparsers.add_parser("subtitle")
@@ -869,6 +997,7 @@ def build_parser() -> argparse.ArgumentParser:
     subtitle_parser.add_argument("--output-suffix", default=".srt")
     _add_common_subtitle_args(subtitle_parser)
     _add_common_llm_args(subtitle_parser)
+    _add_c2net_args(subtitle_parser)
     subtitle_parser.set_defaults(func=cmd_subtitle)
 
     split_parser = subparsers.add_parser("split")
@@ -878,6 +1007,7 @@ def build_parser() -> argparse.ArgumentParser:
     split_parser.add_argument("--output-suffix", default=".srt")
     _add_common_subtitle_args(split_parser)
     _add_common_llm_args(split_parser)
+    _add_c2net_args(split_parser)
     split_parser.set_defaults(func=cmd_split)
 
     optimize_parser = subparsers.add_parser("optimize")
@@ -887,6 +1017,7 @@ def build_parser() -> argparse.ArgumentParser:
     optimize_parser.add_argument("--output-suffix", default=".srt")
     _add_common_subtitle_args(optimize_parser)
     _add_common_llm_args(optimize_parser)
+    _add_c2net_args(optimize_parser)
     optimize_parser.set_defaults(func=cmd_optimize)
 
     translate_parser = subparsers.add_parser("translate")
@@ -896,21 +1027,23 @@ def build_parser() -> argparse.ArgumentParser:
     translate_parser.add_argument("--output-suffix", default=".srt")
     _add_common_subtitle_args(translate_parser)
     _add_common_llm_args(translate_parser)
+    _add_c2net_args(translate_parser)
     translate_parser.set_defaults(func=cmd_translate)
 
     interactive_parser = subparsers.add_parser("interactive")
+    _add_c2net_args(interactive_parser)
     interactive_parser.set_defaults(func=cmd_interactive)
 
     full_parser = subparsers.add_parser("full")
     full_parser.add_argument("--input", required=True)
     full_parser.add_argument("--output-dir", default="")
     full_parser.add_argument("--output-name", default="")
+    full_parser.add_argument("--output-suffix", default=".srt")
     full_parser.add_argument("--language", default="")
     full_parser.add_argument("--transcribe-model", default="FASTER_WHISPER")
     full_parser.add_argument("--word-timestamp", action="store_true")
     full_parser.add_argument("--audio-track-index", type=int, default=0)
 
-    full_parser.add_argument("--whisper-model", default="")
     full_parser.add_argument("--whisper-api-key", default="")
     full_parser.add_argument("--whisper-api-base", default="")
     full_parser.add_argument("--whisper-api-model", default="")
@@ -931,6 +1064,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     _add_common_subtitle_args(full_parser)
     _add_common_llm_args(full_parser)
+    _add_c2net_args(full_parser)
     full_parser.set_defaults(func=cmd_full)
 
     return parser

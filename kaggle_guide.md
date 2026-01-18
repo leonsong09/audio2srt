@@ -15,6 +15,12 @@ If git is missing in the notebook:
 !apt-get update -y && apt-get install -y git
 ```
 
+If GitHub is blocked, use Gitee:
+```bash
+!git clone https://gitee.com/leons9/audio2srt.git
+%cd audio2srt
+```
+
 ## 2. One-step setup (env + model)
 ```bash
 !bash -lc "MODE=whisper-api bash setup.sh"

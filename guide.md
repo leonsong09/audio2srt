@@ -24,6 +24,18 @@ git clone https://github.com/leonsong09/audio2srt.git
 cd audio2srt
 ```
 
+如果 GitHub 无法访问，可用 Gitee：
+```bash
+cd /tmp/code
+git clone https://gitee.com/leons9/audio2srt.git
+cd audio2srt
+```
+
+或者一键脚本（Gitee，无交互）：
+```bash
+bash fetch_gitee.sh
+```
+
 如果你把代码上传到数据集，也可以先复制到 `/tmp/code`：
 ```bash
 cp -r /tmp/dataset/你的代码目录 /tmp/code/audio2srt
@@ -33,7 +45,7 @@ cd /tmp/code/audio2srt
 ## 3. 安装依赖
 推荐一键安装（环境 + 模型）：
 ```bash
-MODE=faster-whisper MODEL_NAME=large-v3 bash setup.sh
+MODE=faster-whisper MODEL_NAME=large-v2 bash setup.sh
 ```
 
 或手动安装：
@@ -188,3 +200,10 @@ DeepSeek 示例：
 3) LLM 报错  
    - 检查 `--llm-api-key` 和 `--llm-base-url`
    - 可以加 `--skip-llm-check` 跳过测试
+
+## 12. Gitee 推送说明
+本地推送到 Gitee（建议使用个人访问令牌）：
+```bash
+git remote add gitee https://gitee.com/leons9/audio2srt.git
+git push -u gitee main
+```

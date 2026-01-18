@@ -17,9 +17,21 @@ git clone https://github.com/leonsong09/audio2srt.git
 cd audio2srt
 ```
 
+If GitHub is blocked, use Gitee:
+```bash
+cd /tmp/code
+git clone https://gitee.com/leons9/audio2srt.git
+cd audio2srt
+```
+
+Non-interactive script (Gitee):
+```bash
+bash fetch_gitee.sh
+```
+
 ## 3. One-step setup (env + model)
 ```bash
-MODE=faster-whisper MODEL_NAME=large-v3 bash setup.sh
+MODE=faster-whisper MODEL_NAME=large-v2 bash setup.sh
 ```
 
 This will:

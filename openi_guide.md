@@ -43,6 +43,11 @@ Optional models:
 - `belle-whisper-large-v3-zh-punct` (default)
 - `belle-whisper-large-v3-turbo-zh`
 
+Model selection tips:
+- Chinese + punctuation: `belle-whisper-large-v3-zh-punct`
+- Faster speed: `large-v3-turbo` or `belle-whisper-large-v3-turbo-zh`
+- Baseline comparison: `large-v2` or `belle-whisper-large-v2-zh`
+
 This will:
 - create `.venv`
 - install Python deps

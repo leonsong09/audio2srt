@@ -57,6 +57,11 @@ MODE=faster-whisper MODEL_NAME=belle-whisper-large-v3-zh-punct bash setup.sh
 - `belle-whisper-large-v3-zh-punct`（默认）
 - `belle-whisper-large-v3-turbo-zh`
 
+## 3.1 模型选择说明
+推荐中文场景优先使用 `belle-whisper-large-v3-zh-punct`（带标点）。  
+如果想速度更快，选择 `large-v3-turbo` 或 `belle-whisper-large-v3-turbo-zh`。  
+需要对比效果时，再尝试 `large-v2` / `belle-whisper-large-v2-zh`。
+
 或手动安装：
 ```bash
 python -m venv .venv
